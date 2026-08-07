@@ -16,6 +16,39 @@ cheap relative to how much the stock is actually moving.
 No broker account, API key, or login required — everything comes from
 [yfinance](https://github.com/ranaroussi/yfinance).
 
+## Why VRP is a real edge, not a market-timing bet
+
+VRP isn't just a screening heuristic — it's the tradeable expression of a
+well-documented market anomaly: **implied volatility systematically
+overstates subsequently realized volatility.** Options, on average, are
+priced richer than the moves that actually follow, and that gap is a
+structural premium collected by whoever is short the option (covered calls,
+cash-secured puts, credit spreads).
+
+The landmark empirical study is:
+
+> Bakshi, G., & Kapadia, N. (2003). *Delta-Hedged Gains and the Negative
+> Market Volatility Risk Premium.* The Review of Financial Studies, 16(2),
+> 527–566.
+
+Using delta-hedged option portfolios on the S&P 500, Bakshi and Kapadia
+showed the market volatility risk premium is negative and statistically
+significant — option sellers earned consistent gains that can only be
+explained by implied volatility running ahead of realized volatility, not by
+directional market risk. Carr, P., & Wu, L. (2009), *Variance Risk
+Premiums*, The Review of Financial Studies, 22(3), 1311–1341, corroborated
+this across the S&P 500 and individual equities using variance swap
+replication.
+
+The economic explanation is crash/tail-risk aversion: option buyers pay for
+downside insurance, which structurally inflates implied volatility above
+what subsequently realized. That's why the premium persists rather than
+arbitraging away — it's compensation for underwriting a risk most
+participants prefer to pay to avoid, not a pricing inefficiency. This is the
+premise this tool operationalizes: rank tickers (or SPY's term structure) by
+how wide that IV-over-RV gap currently is, and surface where the premium on
+offer is richest.
+
 ## Setup
 
 ```bash
