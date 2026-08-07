@@ -19,6 +19,14 @@ Usage:
     python3 vrp_scan.py                        # scan the built-in 40-ticker universe
     python3 vrp_scan.py AAPL MSFT NVDA          # scan just these tickers
     python3 vrp_scan.py --top 5                 # show only the top N by VRP
+    python3 vrp_scan.py --spy                   # SPY multi-tenor VRP term structure
+
+SPY mode (--spy):
+    Computes VRP separately at four tenors (7d/15d/30d/45d) for SPY, with
+    each tenor's realized volatility measured over a matching lookback
+    window (e.g. 7-day IV vs 7-day RV). This gives a quick, single-name
+    read on the broad market's vol term structure without scanning
+    individual names.
 
 Signals:
     STRONG SELL   VRP > 10
@@ -62,6 +70,18 @@ def get_realized_vol(hist: pd.DataFrame, window: int = 30):
     return float(std_dev) * math.sqrt(252)
 
 
+def atm_iv_for_expiry(ticker: yf.Ticker, expiry: str, spot: float):
+    """ATM implied vol at a specific expiry, from the strike closest to spot."""
+    chain = ticker.option_chain(expiry).puts
+    if chain.empty:
+        return None
+
+    chain = chain.assign(dist=(chain["strike"] - spot).abs())
+    atm_row = chain.sort_values("dist").iloc[0]
+    iv = atm_row.get("impliedVolatility")
+    return float(iv) if pd.notna(iv) else None
+
+
 def get_atm_iv(ticker: yf.Ticker, spot: float):
     """ATM implied vol from the nearest expiry that is at least 25 days out."""
     expiries = ticker.options
@@ -76,14 +96,61 @@ def get_atm_iv(ticker: yf.Ticker, spot: float):
             target_exp = exp
             break
 
-    chain = ticker.option_chain(target_exp).puts
-    if chain.empty:
-        return None
+    return atm_iv_for_expiry(ticker, target_exp, spot)
 
-    chain = chain.assign(dist=(chain["strike"] - spot).abs())
-    atm_row = chain.sort_values("dist").iloc[0]
-    iv = atm_row.get("impliedVolatility")
-    return float(iv) if pd.notna(iv) else None
+
+def nearest_expiry(expiries, target_days: int, today):
+    """Expiry whose DTE is closest to target_days (ties go to the earlier expiry)."""
+    best = None
+    for exp in expiries:
+        dte = (pd.to_datetime(exp).date() - today).days
+        if dte <= 0:
+            continue
+        if best is None or abs(dte - target_days) < abs(best[1] - target_days):
+            best = (exp, dte)
+    return best
+
+
+TENORS = [7, 15, 30, 45]
+
+
+def scan_spy_term_structure(symbol: str = "SPY"):
+    """Multi-tenor VRP for a single symbol: IV and RV both measured at each tenor."""
+    try:
+        t = yf.Ticker(symbol)
+        hist = t.history(period="90d")
+        if hist.empty:
+            return None, []
+        spot = float(hist["Close"].dropna().iloc[-1])
+
+        expiries = t.options
+        if not expiries:
+            return spot, []
+
+        today = datetime.now(timezone.utc).date()
+        rows = []
+        for tenor in TENORS:
+            match = nearest_expiry(expiries, tenor, today)
+            if match is None:
+                continue
+            expiry, dte = match
+            iv = atm_iv_for_expiry(t, expiry, spot)
+            rv = get_realized_vol(hist, window=tenor)
+            if iv is None or rv is None:
+                continue
+            vrp_pts = round((iv - rv) * 100, 2)
+            rows.append({
+                "tenor": tenor,
+                "expiry": expiry,
+                "dte": dte,
+                "iv_pct": round(iv * 100, 1),
+                "rv_pct": round(rv * 100, 1),
+                "vrp": vrp_pts,
+                "signal": signal(vrp_pts),
+            })
+        return spot, rows
+    except Exception:
+        return None, []
 
 
 def signal(vrp: float) -> str:
@@ -122,11 +189,47 @@ def scan_ticker(symbol: str):
         return None
 
 
+def print_spy_term_structure(symbol: str = "SPY"):
+    print(f"--- {symbol} MULTI-TENOR VRP — {datetime.now().date()} ---")
+    spot, rows = scan_spy_term_structure(symbol)
+    if spot is None:
+        print("No data returned — check ticker or network connection.")
+        sys.exit(1)
+    print(f"Spot: {spot:.2f}")
+
+    if not rows:
+        print("No tenor data returned — check options chain availability.")
+        sys.exit(1)
+
+    hdr = f"\n{'Tenor':>5}  {'Expiry':<10}  {'DTE':>4}  {'IV%':>6}  {'RV%':>6}  {'VRP':>6}  {'Signal'}"
+    print(hdr)
+    print("-" * (len(hdr) - 1))
+    for row in rows:
+        print(f"{row['tenor']:>4}d  {row['expiry']:<10}  {row['dte']:>4}  "
+              f"{row['iv_pct']:>5.1f}%  {row['rv_pct']:>5.1f}%  "
+              f"{row['vrp']:>+6.1f}  {row['signal']}")
+
+    if len(rows) >= 2:
+        front, back = rows[0], rows[-1]
+        if back["iv_pct"] > front["iv_pct"]:
+            shape = "contango (IV rising from front to back tenor) — normal regime, no acute near-term event priced in"
+        elif back["iv_pct"] < front["iv_pct"]:
+            shape = "backwardation (IV falling from front to back tenor) — front-tenor stress, market pricing a near-term event or elevated risk"
+        else:
+            shape = "flat — front and back tenor IV roughly equal"
+        print(f"\nTerm structure: {shape}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Volatility Risk Premium scanner")
     parser.add_argument("tickers", nargs="*", help="Tickers to scan (default: built-in 40-name universe)")
     parser.add_argument("--top", type=int, default=None, help="Only show the top N results by VRP")
+    parser.add_argument("--spy", action="store_true", help="Multi-tenor (7d/15d/30d/45d) VRP term structure for SPY")
     args = parser.parse_args()
+
+    if args.spy:
+        print_spy_term_structure()
+        return
 
     universe = [t.upper() for t in args.tickers] if args.tickers else DEFAULT_UNIVERSE
 
