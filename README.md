@@ -80,7 +80,9 @@ python3 validate_vrp.py
 ## Output
 
 For each ticker: spot price, implied volatility (%), realized volatility
-(%), VRP (percentage points), and a signal:
+ (%), VRP (percentage points), and a practical screening signal. The signal is
+based only on the measured IV-minus-RV gap; it is not an academic VRP
+classification or a complete trade recommendation.
 
 | Signal | VRP |
 |---|---|

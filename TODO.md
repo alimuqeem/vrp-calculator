@@ -82,11 +82,12 @@ risk, bid/ask spreads, fees, hedging, sizing, and tail losses all matter.
   or z-score. Build a documented composite rank only after backtesting each
   component; retain raw metrics in output so ranking decisions are visible.
 
-- [ ] **Replace fixed trading labels with evidence-based labels.**
-  `STRONG SELL`, `SELL`, and `AVOID` imply a strategy recommendation. Rename
-  them to neutral research labels (for example, `HIGH_VRP`, `MID_VRP`,
-  `LOW_VRP`) or make thresholds configurable. Calibrate any thresholds from
-  the validation dataset and show their sample support in the report.
+- [ ] **Calibrate the practical screening signals from validation data.**
+  Keep the concise `STRONG SELL`, `SELL`, `NEUTRAL`, and `AVOID` labels for
+  the scanner, but treat them as practical UI signals rather than academic VRP
+  terms or complete trade recommendations. Make thresholds configurable and,
+  once sufficient forward-validation data exists, calibrate and document them
+  with their sample support in the report.
 
 ## 4. Account for known event risk and tradability
 

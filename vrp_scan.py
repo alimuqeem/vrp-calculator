@@ -28,11 +28,14 @@ SPY mode (--spy):
     read on the broad market's vol term structure without scanning
     individual names.
 
-Signals:
+Screening signals:
     STRONG SELL   VRP > 10
     SELL          VRP  5-10
     NEUTRAL       VRP  0-5
     AVOID         VRP < 0
+
+These are practical screening labels, not academic VRP classifications or
+complete trade recommendations.
 """
 import argparse
 import csv

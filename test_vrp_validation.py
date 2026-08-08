@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from validate_vrp import markdown_report
-from vrp_scan import append_spy_snapshot, term_structure_shape
+from vrp_scan import append_spy_snapshot, signal, term_structure_shape
 
 
 class SnapshotTests(unittest.TestCase):
@@ -32,6 +32,12 @@ class SnapshotTests(unittest.TestCase):
     def test_curve_shape_handles_flat_and_missing_data(self):
         self.assertEqual(term_structure_shape([]), "insufficient_data")
         self.assertEqual(term_structure_shape([{"iv_pct": 10.0}, {"iv_pct": 10.0}]), "flat")
+
+    def test_screening_signals_cover_each_threshold_band(self):
+        self.assertEqual(signal(10.01), "STRONG SELL")
+        self.assertEqual(signal(10.0), "SELL")
+        self.assertEqual(signal(5.0), "NEUTRAL")
+        self.assertEqual(signal(-0.01), "AVOID")
 
 
 class ReportTests(unittest.TestCase):
