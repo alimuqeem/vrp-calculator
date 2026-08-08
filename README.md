@@ -69,6 +69,12 @@ python3 vrp_scan.py --top 5
 
 # Multi-tenor VRP term structure for SPY (single command, no ticker list needed)
 python3 vrp_scan.py --spy
+
+# Append a dated SPY snapshot for later validation
+python3 vrp_scan.py --spy --record
+
+# After one or more selected expiries have passed, calculate forward realised volatility
+python3 validate_vrp.py
 ```
 
 ## Output
@@ -138,3 +144,28 @@ Term structure: contango (IV rising from front to back tenor) — normal regime,
 - yfinance occasionally rate-limits — if a scan comes back empty, wait a
   bit and try again.
 - This is a research/screening tool, not trading advice.
+
+## Validate SPY term-structure forecasts
+
+`--record` appends one row per tenor to `vrp_history.csv`, including the exact
+expiry, ATM put IV, trailing realised volatility, and curve shape observed at
+the time of the scan. Use it once per trading day or once per week, at a
+consistent time:
+
+```bash
+python3 vrp_scan.py --spy --record
+```
+
+Once an expiry has passed, generate the report:
+
+```bash
+python3 validate_vrp.py --history vrp_history.csv --output vrp_validation_report.md
+```
+
+The report compares snapshot IV against **forward realised volatility** from
+the captured spot through the selected expiry. It shows the average realised
+gap, how often IV exceeded subsequent realised volatility, whether bigger
+forecast VRPs corresponded to bigger realised gaps, and the front-tenor
+outcome for contango versus backwardation snapshots. This validates the
+forecasting signal; it does not model option bid/ask spreads, skew, fees, or
+tail losses, so it is not a trading-performance backtest.
