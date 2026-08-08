@@ -28,16 +28,21 @@ SPY mode (--spy):
     read on the broad market's vol term structure without scanning
     individual names.
 
-Signals:
+Screening signals:
     STRONG SELL   VRP > 10
     SELL          VRP  5-10
     NEUTRAL       VRP  0-5
     AVOID         VRP < 0
+
+These are practical screening labels, not academic VRP classifications or
+complete trade recommendations.
 """
 import argparse
+import csv
 import math
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -112,6 +117,10 @@ def nearest_expiry(expiries, target_days: int, today):
 
 
 TENORS = [7, 15, 30, 45]
+SNAPSHOT_COLUMNS = [
+    "captured_at", "observation_date", "symbol", "tenor_days", "expiry", "dte",
+    "spot", "iv_pct", "trailing_rv_pct", "vrp_pct", "signal", "curve_shape",
+]
 
 
 def scan_spy_term_structure(symbol: str = "SPY"):
@@ -163,6 +172,48 @@ def signal(vrp: float) -> str:
     return "AVOID"
 
 
+def term_structure_shape(rows):
+    """Return a compact curve label for a set of ordered tenor rows."""
+    if len(rows) < 2:
+        return "insufficient_data"
+    front, back = rows[0], rows[-1]
+    if back["iv_pct"] > front["iv_pct"]:
+        return "contango"
+    if back["iv_pct"] < front["iv_pct"]:
+        return "backwardation"
+    return "flat"
+
+
+def append_spy_snapshot(path, symbol, spot, rows, captured_at=None):
+    """Append the current term-structure observation to a durable CSV file."""
+    captured_at = captured_at or datetime.now(timezone.utc)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+    curve_shape = term_structure_shape(rows)
+
+    with path.open("a", newline="", encoding="utf-8") as history_file:
+        writer = csv.DictWriter(history_file, fieldnames=SNAPSHOT_COLUMNS)
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({
+                "captured_at": captured_at.isoformat(),
+                "observation_date": captured_at.date().isoformat(),
+                "symbol": symbol.upper(),
+                "tenor_days": row["tenor"],
+                "expiry": row["expiry"],
+                "dte": row["dte"],
+                "spot": spot,
+                "iv_pct": row["iv_pct"],
+                "trailing_rv_pct": row["rv_pct"],
+                "vrp_pct": row["vrp"],
+                "signal": row["signal"],
+                "curve_shape": curve_shape,
+            })
+    return len(rows)
+
+
 def scan_ticker(symbol: str):
     try:
         t = yf.Ticker(symbol)
@@ -189,7 +240,7 @@ def scan_ticker(symbol: str):
         return None
 
 
-def print_spy_term_structure(symbol: str = "SPY"):
+def print_spy_term_structure(symbol: str = "SPY", record_path=None):
     print(f"--- {symbol} MULTI-TENOR VRP — {datetime.now().date()} ---")
     spot, rows = scan_spy_term_structure(symbol)
     if spot is None:
@@ -209,15 +260,18 @@ def print_spy_term_structure(symbol: str = "SPY"):
               f"{row['iv_pct']:>5.1f}%  {row['rv_pct']:>5.1f}%  "
               f"{row['vrp']:>+6.1f}  {row['signal']}")
 
-    if len(rows) >= 2:
-        front, back = rows[0], rows[-1]
-        if back["iv_pct"] > front["iv_pct"]:
-            shape = "contango (IV rising from front to back tenor) — normal regime, no acute near-term event priced in"
-        elif back["iv_pct"] < front["iv_pct"]:
-            shape = "backwardation (IV falling from front to back tenor) — front-tenor stress, market pricing a near-term event or elevated risk"
-        else:
-            shape = "flat — front and back tenor IV roughly equal"
-        print(f"\nTerm structure: {shape}.")
+    shape = term_structure_shape(rows)
+    shape_explanations = {
+        "contango": "IV rising from front to back tenor — normal regime, no acute near-term event priced in",
+        "backwardation": "IV falling from front to back tenor — front-tenor stress, market pricing a near-term event or elevated risk",
+        "flat": "front and back tenor IV roughly equal",
+        "insufficient_data": "not enough tenors to classify",
+    }
+    print(f"\nTerm structure: {shape} ({shape_explanations[shape]}).")
+
+    if record_path:
+        saved = append_spy_snapshot(record_path, symbol, spot, rows)
+        print(f"Recorded {saved} tenor observations in {record_path}.")
 
 
 def main():
@@ -225,11 +279,18 @@ def main():
     parser.add_argument("tickers", nargs="*", help="Tickers to scan (default: built-in 40-name universe)")
     parser.add_argument("--top", type=int, default=None, help="Only show the top N results by VRP")
     parser.add_argument("--spy", action="store_true", help="Multi-tenor (7d/15d/30d/45d) VRP term structure for SPY")
+    parser.add_argument(
+        "--record", nargs="?", const="vrp_history.csv", default=None, metavar="FILE",
+        help="With --spy, append the term-structure snapshot to FILE (default: vrp_history.csv).",
+    )
     args = parser.parse_args()
 
     if args.spy:
-        print_spy_term_structure()
+        print_spy_term_structure(record_path=args.record)
         return
+
+    if args.record:
+        parser.error("--record can only be used with --spy")
 
     universe = [t.upper() for t in args.tickers] if args.tickers else DEFAULT_UNIVERSE
 
