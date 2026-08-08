@@ -18,7 +18,7 @@ No broker account, API key, or login required — everything comes from
 
 ## Why VRP is a real edge, not a market-timing bet
 
-VRP isn't just a screening heuristic — it's the tradeable expression of a
+VRP is a tradeable expression of a
 well-documented market anomaly: **implied volatility systematically
 overstates subsequently realized volatility.** Options, on average, are
 priced richer than the moves that actually follow, and that gap is a
